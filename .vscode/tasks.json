@@ -1,0 +1,57 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Disk Monitor: Build solution",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"build",
+				".\\DiskMonitor.sln"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Build then test DiskMonitor solution",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"dotnet build .\\DiskMonitor.sln; if ($LASTEXITCODE -eq 0) { dotnet test .\\DiskMonitor.sln } else { exit $LASTEXITCODE }"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Disk Monitor: Build and test (isolated output)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"dotnet build .\\DiskMonitor.sln -p:BaseOutputPath=C:\\Users\\prart\\AppData\\Local\\Temp\\DiskMonitorBuild\\; if ($LASTEXITCODE -eq 0) { dotnet test .\\DiskMonitor.sln -p:BaseOutputPath=C:\\Users\\prart\\AppData\\Local\\Temp\\DiskMonitorBuild\\ } else { exit $LASTEXITCODE }"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Disk Monitor: Validate tray exit fix",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"dotnet build .\\DiskMonitor.sln -p:BaseOutputPath=C:\\Users\\prart\\AppData\\Local\\Temp\\DiskMonitorBuild\\; if ($LASTEXITCODE -eq 0) { dotnet test .\\DiskMonitor.sln -p:BaseOutputPath=C:\\Users\\prart\\AppData\\Local\\Temp\\DiskMonitorBuild\\ } else { exit $LASTEXITCODE }"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		}
+	]
+}
