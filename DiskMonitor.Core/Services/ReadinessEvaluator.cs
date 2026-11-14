@@ -3,175 +3,105 @@ using DiskMonitor.Core.Models;
 
 namespace DiskMonitor.Core.Services;
 
-/// <summary>Assesses startup readiness from a minimum baseline and recent rolling disk measurements.</summary>
 public sealed class ReadinessEvaluator
 {
-    private readonly MonitoringThresholds _thresholds;
-    private readonly HealthEvaluator _healthEvaluator;
-    private readonly List<DiskMetrics> _recentMeasurements = [];
-    private DateTimeOffset? _baselineStartUtc;
-    private DateTimeOffset? _lastValidTimestampUtc;
+    private static readonly TimeSpan SamplingJitterTolerance = TimeSpan.FromMilliseconds(500);
+    private readonly ReadinessOptions _options;
+    private readonly TimeSpan _samplingInterval;
     private DateTimeOffset? _lastTimestampUtc;
+    private DateTimeOffset? _stableSinceUtc;
+    private bool _hasReceivedValidSample;
 
-    /// <summary>Creates an evaluator using the supplied thresholds or the defaults.</summary>
-    public ReadinessEvaluator(MonitoringThresholds? thresholds = null)
+    public ReadinessEvaluator(
+        ReadinessOptions? options = null,
+        TimeSpan? samplingInterval = null)
     {
-        _thresholds = thresholds ?? new MonitoringThresholds();
-        _thresholds.Validate();
-        _healthEvaluator = new HealthEvaluator(_thresholds);
+        _options = options ?? new ReadinessOptions();
+        _options.Validate();
+        _samplingInterval = samplingInterval ?? TimeSpan.FromSeconds(1);
+        if (_samplingInterval <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(samplingInterval));
+        }
     }
 
-    /// <summary>Adds a measurement and returns the current startup-readiness assessment.</summary>
-    public SystemReadiness Evaluate(DiskMetrics measurement)
+    public ReadinessUpdate Evaluate(DiskActiveTimeSample sample)
     {
-        ArgumentNullException.ThrowIfNull(measurement);
-        if (measurement.TimestampUtc.Offset != TimeSpan.Zero)
+        ArgumentNullException.ThrowIfNull(sample);
+        if (sample.TimestampUtc.Offset != TimeSpan.Zero)
         {
-            throw new ArgumentException("Measurement timestamps must be UTC.", nameof(measurement));
+            throw new ArgumentException("Sample timestamps must be UTC.", nameof(sample));
         }
 
-        if (_lastTimestampUtc is DateTimeOffset previous && measurement.TimestampUtc <= previous)
+        if (_lastTimestampUtc is DateTimeOffset previous
+            && sample.TimestampUtc <= previous)
         {
-            throw new ArgumentException("Measurements must have strictly increasing timestamps.", nameof(measurement));
+            throw new ArgumentException("Sample timestamps must be strictly increasing.", nameof(sample));
         }
 
-        _lastTimestampUtc = measurement.TimestampUtc;
-        _healthEvaluator.Evaluate(measurement);
-        _recentMeasurements.Add(measurement);
-        TrimRecentMeasurements(measurement.TimestampUtc);
-
-        if (TryGetRequiredMetrics(measurement, out _, out _))
+        bool samplingGap = _lastTimestampUtc is DateTimeOffset last
+            && sample.TimestampUtc - last > _samplingInterval + SamplingJitterTolerance;
+        _lastTimestampUtc = sample.TimestampUtc;
+        if (samplingGap)
         {
-            if (_lastValidTimestampUtc is not DateTimeOffset lastValid
-                || measurement.TimestampUtc - lastValid > _thresholds.SamplingInterval + _thresholds.SamplingInterval)
-            {
-                _baselineStartUtc = measurement.TimestampUtc;
-            }
-
-            _lastValidTimestampUtc = measurement.TimestampUtc;
+            _stableSinceUtc = null;
         }
 
-        TimeSpan baselineDuration = _baselineStartUtc is DateTimeOffset baselineStart
-            && _lastValidTimestampUtc is DateTimeOffset lastValidTimestamp
-                ? lastValidTimestamp - baselineStart
-                : TimeSpan.Zero;
-        if (baselineDuration < _thresholds.ReadinessBaselineDuration)
+        if (!IsValidActiveTime(sample.ActiveTimePercent))
         {
-            return CreateReadiness(
-                measurement,
-                SystemReadinessState.Initializing,
-                $"Collecting startup baseline; {Remaining(_thresholds.ReadinessBaselineDuration - baselineDuration)} remain before readiness can be assessed.",
-                baselineDuration);
+            _stableSinceUtc = null;
+            ReadinessState state = _hasReceivedValidSample
+                ? ReadinessState.PleaseWait
+                : ReadinessState.Initializing;
+            string reason = string.IsNullOrWhiteSpace(sample.UnavailableReason)
+                ? "The disk active-time counter is unavailable or invalid."
+                : $"The disk active-time counter is unavailable: {sample.UnavailableReason}";
+            return new ReadinessUpdate(
+                sample.TimestampUtc,
+                state,
+                null,
+                TimeSpan.Zero,
+                $"{reason} The stability timer has been reset.");
         }
 
-        if (!TryGetRecentAverages(measurement.TimestampUtc, out double activeAverage, out double responseAverage, out string reason))
+        _hasReceivedValidSample = true;
+        double activeTime = sample.ActiveTimePercent!.Value;
+        if (activeTime >= _options.ActiveTimeThresholdPercent)
         {
-            return CreateReadiness(measurement, SystemReadinessState.Wait, reason, baselineDuration);
+            _stableSinceUtc = null;
+            return new ReadinessUpdate(
+                sample.TimestampUtc,
+                ReadinessState.PleaseWait,
+                activeTime,
+                TimeSpan.Zero,
+                $"Disk activity is {activeTime:F1}%. Please wait until it stays below {_options.ActiveTimeThresholdPercent:F1}% for {_options.StableDurationSeconds} seconds.");
         }
 
-        if (_healthEvaluator.CurrentState is DiskHealthState.Warning or DiskHealthState.Critical)
+        _stableSinceUtc ??= sample.TimestampUtc;
+        TimeSpan stableElapsed = sample.TimestampUtc - _stableSinceUtc.Value;
+        if (stableElapsed >= _options.StableDuration)
         {
-            string healthExplanation = _healthEvaluator.CurrentState == DiskHealthState.Critical
-                ? "Sustained critical disk latency or combined high activity and latency is present."
-                : "Disk activity has remained elevated long enough to trigger a health warning.";
-            return CreateReadiness(measurement, SystemReadinessState.Degraded, healthExplanation, baselineDuration);
+            return new ReadinessUpdate(
+                sample.TimestampUtc,
+                ReadinessState.Ready,
+                activeTime,
+                _options.StableDuration,
+                $"Disk activity has stayed below {_options.ActiveTimeThresholdPercent:F1}% for {_options.StableDurationSeconds} seconds. The system is ready for normal use.");
         }
 
-        if (_healthEvaluator.CurrentState == DiskHealthState.Recovery)
-        {
-            return CreateReadiness(
-                measurement,
-                SystemReadinessState.Wait,
-                "Disk health is recovering; wait for stable measurements before proceeding.",
-                baselineDuration);
-        }
-
-        if (activeAverage >= _thresholds.WarningActiveTimePercent
-            || responseAverage >= _thresholds.ElevatedResponseTimeMilliseconds)
-        {
-            return CreateReadiness(
-                measurement,
-                SystemReadinessState.Wait,
-                $"Recent average activity ({activeAverage:F1}%) or response time ({responseAverage:F1} ms) is elevated; waiting for a stable window.",
-                baselineDuration);
-        }
-
-        return CreateReadiness(
-            measurement,
-            SystemReadinessState.Ready,
-            $"A {_thresholds.ReadinessBaselineDuration.TotalSeconds:F0}-second baseline and recent stable disk activity and latency are available.",
-            baselineDuration);
+        return new ReadinessUpdate(
+            sample.TimestampUtc,
+            ReadinessState.PleaseWait,
+            activeTime,
+            stableElapsed,
+            $"Disk activity is below {_options.ActiveTimeThresholdPercent:F1}%. Stable for {FormatDuration(stableElapsed)} of {_options.StableDurationSeconds} seconds.");
     }
 
-    private bool TryGetRecentAverages(
-        DateTimeOffset now,
-        out double activeAverage,
-        out double responseAverage,
-        out string reason)
-    {
-        activeAverage = default;
-        responseAverage = default;
-        DateTimeOffset start = now - _thresholds.ReadinessRecentWindow;
-        DiskMetrics[] window = _recentMeasurements
-            .Where(sample => sample.TimestampUtc >= start && sample.TimestampUtc <= now)
-            .ToArray();
-        if (window.Length < 2
-            || window[0].TimestampUtc > start + _thresholds.SamplingInterval
-            || now - window[^1].TimestampUtc > _thresholds.SamplingInterval + _thresholds.SamplingInterval)
-        {
-            reason = "Waiting for a complete recent measurement window before assessing readiness.";
-            return false;
-        }
+    private static bool IsValidActiveTime(double? value) =>
+        value is double activeTime
+        && double.IsFinite(activeTime)
+        && activeTime is >= 0 and <= 100;
 
-        var activeValues = new List<double>(window.Length);
-        var responseValues = new List<double>(window.Length);
-        foreach (DiskMetrics sample in window)
-        {
-            if (!TryGetRequiredMetrics(sample, out double active, out double response))
-            {
-                reason = sample.UnavailableMetrics.TryGetValue("Disk active time", out string? activeReason)
-                    ? $"Waiting for disk active-time metrics: {activeReason}"
-                    : sample.UnavailableMetrics.TryGetValue("Average disk response time", out string? responseReason)
-                        ? $"Waiting for disk response-time metrics: {responseReason}"
-                        : "Waiting for valid disk activity and response-time metrics.";
-                return false;
-            }
-
-            activeValues.Add(active);
-            responseValues.Add(response);
-        }
-
-        activeAverage = activeValues.Average();
-        responseAverage = responseValues.Average();
-        reason = string.Empty;
-        return true;
-    }
-
-    private static bool TryGetRequiredMetrics(DiskMetrics measurement, out double active, out double response)
-    {
-        active = measurement.ActiveTimePercent.GetValueOrDefault();
-        response = measurement.AverageResponseTimeMilliseconds.GetValueOrDefault();
-        return measurement.ActiveTimePercent is double activeValue
-                && double.IsFinite(activeValue)
-                && activeValue is >= 0 and <= 100
-            && measurement.AverageResponseTimeMilliseconds is double responseValue
-                && double.IsFinite(responseValue)
-                && responseValue >= 0;
-    }
-
-    private void TrimRecentMeasurements(DateTimeOffset now)
-    {
-        DateTimeOffset cutoff = now - _thresholds.ReadinessRecentWindow - _thresholds.SamplingInterval;
-        _recentMeasurements.RemoveAll(sample => sample.TimestampUtc < cutoff);
-    }
-
-    private static string Remaining(TimeSpan duration) =>
-        $"{Math.Ceiling(duration.TotalSeconds):F0} seconds";
-
-    private static SystemReadiness CreateReadiness(
-        DiskMetrics measurement,
-        SystemReadinessState state,
-        string explanation,
-        TimeSpan baselineDuration) =>
-        new(measurement.TimestampUtc, state, explanation, baselineDuration);
+    private static string FormatDuration(TimeSpan duration) =>
+        $"{(int)duration.TotalMinutes:D2}:{duration.Seconds:D2}";
 }

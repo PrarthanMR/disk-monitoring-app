@@ -4,7 +4,12 @@ namespace DiskMonitor.App.Startup;
 
 public sealed class StartupSettingsStore
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true
+    };
     private readonly string _settingsPath;
 
     public StartupSettingsStore()
@@ -21,20 +26,23 @@ public sealed class StartupSettingsStore
         _settingsPath = settingsPath;
     }
 
-    public StartupSettings Load()
+    public ReadinessSettings Load()
     {
         if (!File.Exists(_settingsPath))
         {
-            return new StartupSettings();
+            return new ReadinessSettings();
         }
 
-        return JsonSerializer.Deserialize<StartupSettings>(File.ReadAllText(_settingsPath))
+        ReadinessSettings settings = JsonSerializer.Deserialize<ReadinessSettings>(File.ReadAllText(_settingsPath), JsonOptions)
             ?? throw new InvalidDataException("The Disk Monitor settings file does not contain valid settings.");
+        settings.Validate();
+        return settings;
     }
 
-    public void Save(StartupSettings settings)
+    public void Save(ReadinessSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        settings.Validate();
         string? directory = Path.GetDirectoryName(_settingsPath);
         if (string.IsNullOrEmpty(directory))
         {

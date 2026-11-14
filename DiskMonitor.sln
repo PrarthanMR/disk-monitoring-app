@@ -11,8 +11,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DiskMonitor.Windows", "Disk
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DiskMonitor.Tests", "DiskMonitor.Tests\DiskMonitor.Tests.csproj", "{5E61E466-6C34-4172-91B7-7458785A0424}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DiskMonitor.Diagnostics", "DiskMonitor.Diagnostics\DiskMonitor.Diagnostics.csproj", "{DC901D28-7731-408A-984C-437200CAAB8E}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -71,18 +69,6 @@ Global
 		{5E61E466-6C34-4172-91B7-7458785A0424}.Release|x64.Build.0 = Release|Any CPU
 		{5E61E466-6C34-4172-91B7-7458785A0424}.Release|x86.ActiveCfg = Release|Any CPU
 		{5E61E466-6C34-4172-91B7-7458785A0424}.Release|x86.Build.0 = Release|Any CPU
-		{DC901D28-7731-408A-984C-437200CAAB8E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{DC901D28-7731-408A-984C-437200CAAB8E}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{DC901D28-7731-408A-984C-437200CAAB8E}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{DC901D28-7731-408A-984C-437200CAAB8E}.Debug|x64.Build.0 = Debug|Any CPU
-		{DC901D28-7731-408A-984C-437200CAAB8E}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{DC901D28-7731-408A-984C-437200CAAB8E}.Debug|x86.Build.0 = Debug|Any CPU
-		{DC901D28-7731-408A-984C-437200CAAB8E}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{DC901D28-7731-408A-984C-437200CAAB8E}.Release|Any CPU.Build.0 = Release|Any CPU
-		{DC901D28-7731-408A-984C-437200CAAB8E}.Release|x64.ActiveCfg = Release|Any CPU
-		{DC901D28-7731-408A-984C-437200CAAB8E}.Release|x64.Build.0 = Release|Any CPU
-		{DC901D28-7731-408A-984C-437200CAAB8E}.Release|x86.ActiveCfg = Release|Any CPU
-		{DC901D28-7731-408A-984C-437200CAAB8E}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

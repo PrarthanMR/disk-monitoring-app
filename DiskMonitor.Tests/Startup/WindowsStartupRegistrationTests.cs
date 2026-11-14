@@ -41,6 +41,19 @@ public sealed class WindowsStartupRegistrationTests
         Assert.Equal(2, store.WriteCount);
     }
 
+    [Fact]
+    public void StartupCommandLaunchesTheDashboardNormally()
+    {
+        var store = new InMemoryStartupEntryStore();
+        var registration = new WindowsStartupRegistration(@"C:\DiskMonitor.exe", store);
+
+        registration.SetEnabled(true);
+
+        Assert.True(registration.IsEnabled);
+        Assert.Equal("\"C:\\DiskMonitor.exe\"", store.GetCommand("DiskMonitor"));
+        Assert.Equal(1, store.WriteCount);
+    }
+
     private sealed class InMemoryStartupEntryStore : IStartupEntryStore
     {
         private readonly Dictionary<string, string> _commands = new(StringComparer.OrdinalIgnoreCase);

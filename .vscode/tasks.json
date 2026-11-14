@@ -39,19 +39,6 @@
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "build"
-		},
-		{
-			"label": "Disk Monitor: Validate tray exit fix",
-			"type": "shell",
-			"command": "powershell",
-			"args": [
-				"-NoProfile",
-				"-Command",
-				"dotnet build .\\DiskMonitor.sln -p:BaseOutputPath=C:\\Users\\prart\\AppData\\Local\\Temp\\DiskMonitorBuild\\; if ($LASTEXITCODE -eq 0) { dotnet test .\\DiskMonitor.sln -p:BaseOutputPath=C:\\Users\\prart\\AppData\\Local\\Temp\\DiskMonitorBuild\\ } else { exit $LASTEXITCODE }"
-			],
-			"isBackground": false,
-			"problemMatcher": [],
-			"group": "build"
 		}
 	]
 }

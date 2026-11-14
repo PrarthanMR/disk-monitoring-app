@@ -26,7 +26,10 @@ public sealed class WindowsStartupRegistration
 
     /// <summary>Gets whether the current-user startup entry points to this executable.</summary>
     public bool IsEnabled =>
-        string.Equals(_entryStore.GetCommand(EntryName), BuildCommand(_executablePath), StringComparison.OrdinalIgnoreCase);
+        string.Equals(
+            _entryStore.GetCommand(EntryName),
+            BuildCommand(_executablePath),
+            StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Enables or disables current-user startup registration idempotently.</summary>
     public void SetEnabled(bool enabled)

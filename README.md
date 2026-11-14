@@ -1,89 +1,110 @@
 # Disk Monitor
 
-A lightweight Windows 11 disk monitoring utility.
+Disk Monitor is a lightweight Windows 11 startup-readiness dashboard. It samples
+the aggregate physical disk's active time once per second and reports **READY**
+only after activity stays below the configured threshold continuously for the
+configured duration.
 
-## Prerequisites
+## Architecture
 
-- Windows 11 to run the Windows Forms application.
-- .NET 10 SDK to build the solution.
+- **DiskMonitor.App** — Windows Forms dashboard, readiness settings, and app lifecycle.
+- **DiskMonitor.Core** — platform-independent active-time models and readiness evaluation.
+- **DiskMonitor.Windows** — Windows `PhysicalDisk(_Total)\% Disk Time` collection and current-user startup registration.
+- **DiskMonitor.Tests** — xUnit tests for readiness, configuration, startup registration, and real Windows counter collection.
 
-The Windows projects enable Windows targeting so that they can also be built
-from non-Windows environments with the required .NET targeting packs. The
-Windows Forms application itself can only run on Windows.
+The app reads the Windows `% Disk Time` active-time counter directly, avoiding
+negative values caused by subtracting a rounded `% Idle Time` reading from 100.
+Invalid or unavailable readings are shown as unavailable, never as zero, and
+reset the readiness timer. Disk activity is a measure of busy time, not a
+diagnosis of disk failure or a guarantee that every application will perform
+well.
 
-## Build and test
+## Installation and running
 
-From the repository root, run:
+### Build from source
+
+Requires Windows 11 and the .NET 10 SDK:
 
 ```powershell
-dotnet build .\DiskMonitor.sln
-dotnet test .\DiskMonitor.sln
-```
-
-## Run the application
-
-From the repository root on Windows, run:
-
-```powershell
+dotnet build .\DiskMonitor.sln -c Release
+dotnet test .\DiskMonitor.sln -c Release
 dotnet run --project .\DiskMonitor.App\DiskMonitor.App.csproj
 ```
 
-This opens the live dashboard and starts monitoring in the background. Closing
-the window hides it in the notification area; monitoring continues until
-**Exit** is selected from the Disk Monitor tray icon menu.
+### Self-contained release
 
-The notification-area menu provides **Open Dashboard**, **Current Status**,
-**Pause Monitoring**, **Resume Monitoring**, **Start with Windows**, and
-**Exit**. The startup option is off by default. When enabled, the application
-registers its executable in the current user's Windows Run key (no
-administrator access) and saves the preference to
-`%LocalAppData%\DiskMonitor\settings.json`. On sign-in, the dashboard opens,
-monitoring starts, and a balloon notification reports the first readiness
-assessment after the baseline is evaluated.
-
-Warning, critical, and recovery transitions are delivered as notification
-balloons and are deduplicated for each incident. Notification delivery is
-isolated behind `INotificationService` for a future toast implementation.
-
-## Inspect live disk metrics
-
-The diagnostics console samples the Windows `PhysicalDisk(_Total)` counters
-once per second and exits after five samples. On Windows, run:
+Publish a self-contained Windows x64 single-file executable:
 
 ```powershell
-dotnet run --project .\DiskMonitor.Diagnostics\DiskMonitor.Diagnostics.csproj
+dotnet publish .\DiskMonitor.App\DiskMonitor.App.csproj -c Release -p:PublishProfile=win-x64
 ```
 
-Press Ctrl+C to cancel early. Unavailable metrics are shown as unavailable
-along with the reason; capacity and free space are reported separately for the
-system volume.
+The app executable is written to
+`artifacts\publish\win-x64-readiness\DiskMonitor.App.exe`. Copy it to a
+user-writable folder and launch it; a separate .NET or Python installation is
+not required.
 
-## Project structure
+## Startup configuration
 
-```text
-DiskMonitor.sln
-DiskMonitor.App/       Windows Forms application and entry point
-  Forms/               Application windows
-DiskMonitor.Core/      Platform-independent models and business logic
-  Configuration/
-  Interfaces/
-  Models/
-  Services/
-DiskMonitor.Windows/   Windows-specific integrations
-  Configuration/
-  Logging/
-  Performance/
-DiskMonitor.Tests/     xUnit tests (references Core)
-DiskMonitor.Diagnostics/ Console harness for live Windows metrics
-```
+On launch, Disk Monitor registers its executable in the current user's Windows
+Run key so the dashboard opens at sign-in. Registration does not require
+administrator access. If registration fails, the dashboard displays a warning.
+To stop it starting automatically, remove the `DiskMonitor` value from
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 
-`DiskMonitor.Core` targets `net10.0` and has no Windows-specific references.
-The App references Core and Windows; Windows references Core; Tests references
-Core; Diagnostics references Windows.
+## Dashboard and readiness behavior
 
-Health and readiness thresholds can be customized through
-`DiskMonitor.Core.Configuration.MonitoringThresholds`. Defaults include a 90%
-active-time warning sustained for 20 seconds, critical response time at 100 ms
-for 10 seconds, and recovery below 70% active time with response below 50 ms
-for 30 seconds. Critical active time requires elevated response time as well;
-active time alone is not treated as disk failure.
+The dark dashboard prominently shows whether you can start your workflow or
+should wait, along with current disk active time, stability progress, and a
+recent-activity graph. Disk Monitor does not send toast or balloon
+notifications. **Settings** lets you configure:
+
+- The active-time threshold (default **20%**).
+- How long activity must stay below that threshold (default **60 seconds**).
+
+The status is **INITIALIZING** until the first valid counter sample is
+available. It then shows **PLEASE WAIT** while the disk is at or above the
+threshold or the stability period is incomplete. Any reading at or above the
+threshold, invalid metric, or sampling gap resets the stability period. Once
+the full duration passes below threshold, status becomes **READY TO GO** and
+the dashboard says you can start your workflow. Monitoring continues after
+that, and a later threshold crossing changes the status back to **PLEASE WAIT**.
+Closing the window stops monitoring and exits the application; there is no tray
+or background monitoring process.
+
+Settings are stored locally at
+`%LocalAppData%\DiskMonitor\settings.json`.
+
+## Troubleshooting
+
+- **Active time is unavailable:** Windows may not expose the
+  `PhysicalDisk(_Total)\% Disk Time` counter, or the counter may be temporarily
+  unavailable. The dashboard will not count unavailable values as zero or
+  advance the stability timer.
+- **The status stays PLEASE WAIT:** disk activity must remain strictly below
+  the configured threshold for the entire stable duration. A spike, invalid
+  reading, or sampling gap restarts the timer.
+- **No startup launch:** verify the current user's Run key contains the
+  `DiskMonitor` entry and that its executable path still exists. Reopen the
+  dashboard to refresh the registration path.
+- **Settings cannot be loaded:** the settings file is JSON. If it is malformed,
+  close the app and remove `%LocalAppData%\DiskMonitor\settings.json` to restore
+  the defaults.
+
+## Uninstall
+
+1. Close Disk Monitor; this stops sampling and exits the app.
+2. Remove the `DiskMonitor` value from the current user's Run key.
+3. Delete the folder containing `DiskMonitor.App.exe`.
+4. Optionally remove `%LocalAppData%\DiskMonitor` to delete local settings.
+
+The app does not install a Windows service, modify other processes, or transmit
+monitoring data outside the machine.
+
+## Known limitations
+
+- The dashboard uses the aggregate `_Total` physical-disk counter; it does not
+  distinguish individual drives.
+- This is a startup-readiness aid, not a guarantee of application performance.
+- Windows may report temporary unavailable samples, which conservatively reset
+  the stability timer.
