@@ -125,11 +125,11 @@ the readiness rules can be tested independently.
 
 **Please wait** — the disk reading is currently unavailable in this capture, so the app does not count it as zero or advance the readiness timer.
 
-![Disk Monitor showing Please Wait](./docs/screenshots/please-wait.png)
+![Disk Monitor showing Please Wait](./docs/screenshots/please_wait.png)
 
 **Ready to start your workflow** — disk activity has stayed under the threshold for the required duration.
 
-![Disk Monitor showing workflow readiness](./docs/screenshots/ready-to-go.png)
+![Disk Monitor showing workflow readiness](./docs/screenshots/ready_to_use.png)
 
 The screenshot files are stored in `docs/screenshots` in this repository. To
 show them in a GitHub README, include (commit and push) those image files along
